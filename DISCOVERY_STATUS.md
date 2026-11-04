@@ -161,3 +161,15 @@ mode. The previous five published rows retain their verified categories.
 
 Validation after adding this mode: 30 tests passed, including no-Google startup,
 public-only collection, restart recovery and deferred publication.
+
+
+### Verified hosted startup
+
+Deployment 813af1e5-0e8d-4b57-a29c-24e08a50ad94 reached SUCCESS on
+2026-11-04. Runtime logs confirm public_catalog_only, no Google credentials,
+source filtering deferred, and state running. The initial public sitemap
+produced 660 pending index/category pages after the first index completed.
+This is a running traversal, not a completed catalog audit or confirmed new
+assortment result. Candidates and queues are persisted on the attached /data
+volume; no automatic Google Sheets synchronization is active.
+The service is pinned to executable commit 9b6f35a71e6be1325bfcc61490a53b7504870d3e.
