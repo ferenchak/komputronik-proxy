@@ -83,10 +83,17 @@ def run():
     directory.mkdir(parents=True, exist_ok=True)
     queue = Queue(directory/'catalog.sqlite3')
     box = Outbox(directory/'candidates.sqlite3')
-    client = get_sheets_client()
-    key = os.environ.get('SPREADSHEET_ID')
-    book = retry(lambda: client.open_by_key(key) if key else client.open(SPREADSHEET_NAME))
-    known = source_keys(book)
+    book = None
+    if os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON') or os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
+        client = get_sheets_client()
+        key = os.environ.get('SPREADSHEET_ID')
+        book = retry(lambda: client.open_by_key(key) if key else client.open(SPREADSHEET_NAME))
+        known = source_keys(book)
+    elif os.environ.get('DISCOVERY_PUBLIC_CATALOG_ONLY') == '1':
+        known = set()
+        print(json.dumps({'sheets_sync':'disabled_no_credentials','source_filtering':'deferred_until_google_sync','scan_scope':'public_catalog_only'}),flush=True)
+    else:
+        raise RuntimeError('Provide Google credentials or enable public-catalog-only mode')
     candidate_keys = set()
     for item in box.items():
         candidate_keys.update(product_keys(item))
@@ -121,7 +128,7 @@ def run():
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             while True:
-                if pending_publish and time.monotonic()-last_publish>=90:
+                if book is not None and pending_publish and time.monotonic()-last_publish>=90:
                     try:
                         count=publish(book,box.items())
                         print(json.dumps({'published_now':count}),flush=True)
@@ -178,7 +185,7 @@ def run():
         raise SystemExit(3)
     finally:
         box.export(directory/'product_candidates.csv')
-        if box.items():
+        if book is not None and box.items():
             try:
                 print(json.dumps({'final_published':publish(book,box.items())}),flush=True)
             except Exception as error:

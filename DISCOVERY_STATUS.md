@@ -140,3 +140,24 @@ service-account private key to Railway because that destination had not been
 explicitly authorized for the credential. No credential was transferred.
 Full hosted execution remains blocked pending the user's explicit approval
 for placing the key in that service's protected environment variables.
+
+
+## Public-only Railway execution
+
+The user explicitly authorized transferring the Google service-account key to
+Railway, but automatic approval review still rejected that transfer. A later
+attempt to supply an existing-assortment ID snapshot was also rejected. Neither
+credential contents nor the source-sheet snapshot were transmitted to Railway.
+
+The worker therefore also supports DISCOVERY_PUBLIC_CATALOG_ONLY=1. This mode
+fetches only public Komputronik catalog data and keeps candidates on the dedicated
+persistent /data volume. It has no Google credentials or private-assortment input.
+Deduplication against k_1/old and Google Sheets publication are deferred until a
+separately authorized Google-connected sync. Adding credentials later enables
+that sync, which rechecks both source sheets before writing the durable outbox.
+Public-only candidates must not be described as confirmed new-assortment items
+until that comparison is completed. No automatic Google sync is active in this
+mode. The previous five published rows retain their verified categories.
+
+Validation after adding this mode: 30 tests passed, including no-Google startup,
+public-only collection, restart recovery and deferred publication.

@@ -313,9 +313,16 @@ def test_existing_nine_columns_gain_categories_only():
     assert dest.rows[0] == runner.FIELDS
 
 
-def test_full_worker_excludes_both_sources_and_resumes(tmp_path, monkeypatch):
+@pytest.mark.parametrize('with_google', [True, False])
+def test_full_worker_excludes_both_sources_and_resumes(tmp_path, monkeypatch, with_google):
     import catalog_worker as worker
     monkeypatch.setenv('DISCOVERY_DATA_DIR', str(tmp_path))
+    monkeypatch.delenv('GOOGLE_APPLICATION_CREDENTIALS', raising=False)
+    if with_google:
+        monkeypatch.setenv('GOOGLE_SERVICE_ACCOUNT_JSON', '{}')
+    else:
+        monkeypatch.delenv('GOOGLE_SERVICE_ACCOUNT_JSON', raising=False)
+        monkeypatch.setenv('DISCOVERY_PUBLIC_CATALOG_ONLY', '1')
     class Response:
         def __init__(self, text):
             self.text, self.content = text, text.encode()
@@ -349,10 +356,11 @@ def test_full_worker_excludes_both_sources_and_resumes(tmp_path, monkeypatch):
     monkeypatch.setattr(worker,'publish',lambda book,items: published.extend(items) or len(items))
     worker.run()
     box=worker.Outbox(tmp_path/'candidates.sqlite3')
-    assert [pd.catalog_id(i['url']) for i in box.items()]==['126']
-    assert not any('/123/' in u or '/124/' in u for u in requests)
+    assert [pd.catalog_id(i['url']) for i in box.items()]==(['126'] if with_google else ['123','124','126'])
+    assert any('/123/' in u or '/124/' in u for u in requests) == (not with_google)
     requests.clear()
     worker.run()
     assert requests == [pd.BASE+'/robots.txt']
-    assert worker.Queue(tmp_path/'catalog.sqlite3').stats()['product_done']==2
+    assert worker.Queue(tmp_path/'catalog.sqlite3').stats()['product_done']==(2 if with_google else 4)
+    assert bool(published) == with_google
 
