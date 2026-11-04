@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.discovery.example
+gspread-access.json
+*credentials*.json
+*service-account*.json
+parser_pending*.json
+parser_pending*.tmp
+*.sqlite3*
+product_candidates*.csv*
+*.log
+__pycache__/
+.pytest_cache/
