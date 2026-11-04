@@ -173,3 +173,27 @@ This is a running traversal, not a completed catalog audit or confirmed new
 assortment result. Candidates and queues are persisted on the attached /data
 volume; no automatic Google Sheets synchronization is active.
 The service is pinned to executable commit 9b6f35a71e6be1325bfcc61490a53b7504870d3e.
+
+
+## Daily scheduled operation
+
+The user manually configured GOOGLE_SERVICE_ACCOUNT_JSON and SPREADSHEET_ID
+in Railway. Runtime logs confirmed successful publication of 44 candidates and
+zero duplicate additions on the following restart. The connected Google branch
+of the worker now runs, with k_1/old exclusions and periodic Sheets writes.
+
+Daily Railway cron is configured as `0 1 * * *` (01:00 UTC, currently 03:00
+Europe/Kyiv in winter; 04:00 under summer UTC+3). Railway skips a scheduled
+execution while the prior one is still active. No separate ChatGPT scheduling
+job or manual assistant intervention is required.
+
+DISCOVERY_RECURRING=1 starts a fresh traversal only after a finished or
+finished_with_failures pass. Completed queues are reset transactionally so new
+catalog products and prior below-threshold prices are rechecked. Interrupted
+passes continue from existing checkpoints. Products now found in either source
+sheet are skipped. Each process exits after its pass; there is no busy waiting
+between scheduled executions. Access restrictions still stop a pass.
+
+Validation after the recurring-pass change: 31 tests passed. The service keeps
+the same persistent /data volume. Source credentials were not read or changed
+by the agent during this schedule configuration.

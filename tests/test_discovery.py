@@ -278,6 +278,23 @@ def test_durable_queue_recovers_inflight_jobs(tmp_path):
     assert recovered.stats()['product_done'] == 1
 
 
+def test_recurring_pass_revisits_completed_queue_but_resumes_interruptions(tmp_path):
+    from catalog_worker import Queue
+    q = Queue(tmp_path / 'queue.sqlite3')
+    q.add('index', pd.BASE+'/sitemap.xml')
+    assert q.take('index') == [pd.BASE+'/sitemap.xml']
+    q.finish('index', pd.BASE+'/sitemap.xml')
+    q.status('running')
+    assert not q.prepare_pass(recurring=True)
+    assert q.take('index') == []
+    q.status('finished')
+    assert not q.prepare_pass(recurring=False)
+    assert q.prepare_pass(recurring=True)
+    assert q.take('index') == [pd.BASE+'/sitemap.xml']
+    q.status('blocked_by_site')
+    assert not q.prepare_pass(recurring=True)
+
+
 def test_catalog_index_follows_real_pagination_and_excludes_facets():
     from catalog_worker import index_links
     doc = ('<!doctype html><a href="/category/5022/laptopy.html?p=2">Next</a>'

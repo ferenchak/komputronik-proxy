@@ -46,6 +46,18 @@ class Queue:
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO status VALUES ("run_state",?)', (state,))
 
+    def prepare_pass(self, recurring=False):
+        previous = self.db.execute('SELECT value FROM status WHERE key="run_state"').fetchone()
+        if recurring and previous and previous[0] in ('finished', 'finished_with_failures'):
+            # A scheduled pass must revisit indexes to discover newly listed
+            # products and recheck previously below-threshold product prices.
+            # Interrupted or blocked passes keep their queue/checkpoints.
+            with self.db:
+                self.db.execute('UPDATE jobs SET state="pending", attempts=0, error=""')
+                self.db.execute('INSERT OR REPLACE INTO status VALUES ("run_state","preparing")')
+            return True
+        return False
+
 
 def index_links(content, url):
     indexes, products = set(), set()
@@ -82,6 +94,8 @@ def run():
     directory = Path(os.environ.get('DISCOVERY_DATA_DIR','/data'))
     directory.mkdir(parents=True, exist_ok=True)
     queue = Queue(directory/'catalog.sqlite3')
+    new_pass = queue.prepare_pass(os.environ.get('DISCOVERY_RECURRING') == '1')
+    print(json.dumps({'new_catalog_pass':new_pass,'resuming_existing_pass':not new_pass}),flush=True)
     box = Outbox(directory/'candidates.sqlite3')
     book = None
     if os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON') or os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
@@ -117,6 +131,8 @@ def run():
         print(json.dumps({'state':state,**queue.stats(),'candidates':len(box.items())},ensure_ascii=False),flush=True)
 
     def scan(url):
+        if product_keys({'url':url}) & known:
+            return url,None,'known_source'
         try:
             item=parse_product(transport.get(url).text,url)
             return url,item,'' if item else 'product_json_missing'
@@ -146,7 +162,7 @@ def run():
                             box.add(item)
                             candidate_keys.update(product_keys(item))
                             pending_publish=True
-                        queue.finish('product',url,error)
+                        queue.finish('product',url,'' if error=='known_source' else error)
                     except Restricted as error:
                         restriction=error
                 if restriction:
