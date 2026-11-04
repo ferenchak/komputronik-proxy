@@ -352,7 +352,14 @@ def test_full_worker_excludes_both_sources_and_resumes(tmp_path, monkeypatch, wi
             if url.endswith('/robots.txt'):
                 return Response('User-agent: *\nAllow: /')
             if url.endswith('/sitemap.xml'):
-                return Response('<!doctype html>' + ''.join('<a href="'+URL.replace('/123/', f'/{i}/')+'">Product</a>' for i in (123,124,125,126)))
+                return Response('<!doctype html><a href="/category/1/test.html">Catalog</a>')
+            if '/category/1/test.html' in url:
+                page = 3 if '?p=3' in url else 2 if '?p=2' in url else 1
+                identities = {1:(123,124),2:(125,),3:(126,)}[page]
+                links = ''.join('<a href="'+URL.replace('/123/', f'/{i}/')+'">Product</a>' for i in identities)
+                if page<3:
+                    links += '<a href="/category/1/test.html?p='+str(page+1)+'">Next</a>'
+                return Response('<!doctype html>'+links)
             price = '500' if pd.catalog_id(url)=='125' else '501'
             return Response(html({'@type':'Product','name':'New','offers':{'price':price,'priceCurrency':'PLN'}}))
     class Tab:
@@ -379,5 +386,6 @@ def test_full_worker_excludes_both_sources_and_resumes(tmp_path, monkeypatch, wi
     worker.run()
     assert requests == [pd.BASE+'/robots.txt']
     assert worker.Queue(tmp_path/'catalog.sqlite3').stats()['product_done']==(2 if with_google else 4)
+    assert worker.Queue(tmp_path/'catalog.sqlite3').stats()['index_done']==4
     assert bool(published) == with_google
 
