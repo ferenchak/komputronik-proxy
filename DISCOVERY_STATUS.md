@@ -197,3 +197,31 @@ between scheduled executions. Access restrictions still stop a pass.
 Validation after the recurring-pass change: 31 tests passed. The service keeps
 the same persistent /data volume. Source credentials were not read or changed
 by the agent during this schedule configuration.
+
+
+## Manual control from Google Sheets (replaces the daily schedule)
+
+The user requested on-demand operation instead of the daily schedule. The
+service cron is removed. discovery_control.py polls only the native checkbox
+Discovery_керування!B3 every 20 seconds; the catalog worker itself is idle until
+requested. Status, source-page progress, pending index pages, candidate count,
+result rows and last start/finish are written to B4:B12. A durable control-state
+file preserves accepted requests and resumes an interrupted requested scan
+across controller restarts. Idle restarts do not initiate a scan. Repeated
+checkbox clicks during an active scan are acknowledged without a second worker.
+Only a boolean is accepted from the sheet; no sheet text becomes a command.
+
+After a completed pass, the next manual request starts a new traversal; an
+unfinished pass continues existing checkpoints. The worker still follows all
+reachable pagination without a product/index count cap. 660/662 in early logs
+is the number of queued index/category pages, never a product-total limit.
+At manual-control setup, the output contained 72 products plus a header row;
+the prior interrupted pass had processed 202 product pages and still had 662
+index pages pending. These were partial results, not a complete catalog scan.
+The native price threshold remains strictly above 500 PLN on parsed product
+offers; no unverified site filter URL parameter was introduced.
+
+Validation: 35 tests passed, including one worker per checkbox request,
+ignoring repeated clicks during a scan, resuming a prior accepted request,
+idle restart behavior and preserving a request after child-process spawn failure.
+Only the lightweight controller remains online between manual requests.

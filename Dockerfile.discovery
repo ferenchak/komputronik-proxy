@@ -3,5 +3,5 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 COPY requirements-discovery.txt ./
 RUN pip install --no-cache-dir -r requirements-discovery.txt
-COPY parser_local_v8.py product_discovery.py discovery_runner.py catalog_worker.py ./
-CMD ["python", "catalog_worker.py"]
+COPY parser_local_v8.py product_discovery.py discovery_runner.py catalog_worker.py discovery_control.py ./
+CMD ["python", "discovery_control.py"]
