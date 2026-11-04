@@ -59,8 +59,9 @@ pagination query keys; coverage is explicitly unverified.
 
 The live assortment was read through the connected Google Sheets account
 (4005 returned rows in B1:B4545); this confirmed identity matching includes
-the first product row. End-to-end service-account publishing has not been
-validated. No full crawl or live product publication has occurred.
+the first product row. The initial test did not publish products. Service-account publishing was later
+verified successfully; see the follow-up verification below. No full crawl has
+been performed.
 
 ## Bounded live test — 2026-11-04
 
@@ -86,3 +87,26 @@ outbox recovery, first-row inclusion, ambiguous Sheets write timeouts, duplicate
 publication prevention, preserving unknown headers, price-parser journal
 recovery, and stopping on access restrictions. Syntax compilation also passed.
 No original embedded proxy credential values remain in the changed files.
+
+
+## Service-account publishing verification — 2026-11-04
+
+The user supplied the existing Google service-account key privately. It was
+used only through GOOGLE_APPLICATION_CREDENTIALS; no credential contents or
+private-key identifiers were added to the repository.
+
+A fresh bounded scan read the live k_1 assortment and saved five candidates.
+All five were published to the separate product_discovery worksheet
+(sheetId 1131056133). Readback verified the exact five product URLs and the
+expected nine-column header. Repeating publication added zero rows and left
+all existing values unchanged. The source k_1 worksheet was not written.
+
+The live run exposed a gspread edge case: a newly created blank worksheet
+returns `[[]]`. Publication now treats empty trailing rows as empty before
+checking headers, while continuing to refuse unknown populated headers.
+Four blank-sheet representations are covered by the parameterized test.
+Automated checks after the fix: **23 tests passed**.
+
+The key is configured only for this verification environment. A future hosted
+process must receive its credentials separately; no scheduled or full-catalog
+job was deployed. Webshare password rotation remains an owner action.

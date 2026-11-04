@@ -123,6 +123,10 @@ def publish(book, items, title='product_discovery'):
         # On uncertain create outcome a rerun discovers the created sheet.
         sheet = book.add_worksheet(title=title, rows=max(1000, len(items) + 1), cols=9)
     rows = retry(sheet.get_all_values)
+    # gspread returns [[]] for a newly created empty worksheet.
+    # Remove only empty trailing rows; preserve every populated existing row.
+    while rows and not any(value != '' for value in rows[-1]):
+        rows.pop()
     if rows and rows[0] != FIELDS:
         raise ValueError('Unexpected destination headers; refusing overwrite')
     known = source_keys(book)
@@ -233,3 +237,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

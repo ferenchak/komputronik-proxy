@@ -101,8 +101,10 @@ def test_first_source_row_is_included():
     assert 'catalog:123' in runner.source_keys(Book(Destination()))
 
 
-def test_publish_retry_and_rerun_do_not_duplicate():
+@pytest.mark.parametrize('empty_rows', [[], [[]], [['']], [[''] * 9, []]])
+def test_publish_retry_and_rerun_do_not_duplicate(empty_rows):
     dest = Destination()
+    dest.rows = empty_rows
     book = Book(dest)
     new = item(url=URL.replace('/123/', '/456/'), name='=IMPORTXML("bad")')
     with patch.object(runner.time, 'sleep'):
@@ -237,3 +239,4 @@ def test_automatic_price_batch_failure_does_not_escape(tmp_path, monkeypatch):
     writer = v8.BatchWriter(Failing(), batch_size=1)
     writer.add(2, {'name': 'Success', 'price': 999})
     assert writer._pending[2][0] == 'Success'
+
