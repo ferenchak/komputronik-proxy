@@ -225,3 +225,22 @@ Validation: 35 tests passed, including one worker per checkbox request,
 ignoring repeated clicks during a scan, resuming a prior accepted request,
 idle restart behavior and preserving a request after child-process spawn failure.
 Only the lightweight controller remains online between manual requests.
+
+
+### Manual-control end-to-end verification
+
+Deployment 16140d37-bda7-4c69-9247-c4fe85f7fac7 reached SUCCESS with
+cron absent, restart policy ALWAYS and discovery_control.py as the start
+command. Native control cell B3 was set TRUE once. The controller reset it to
+FALSE, launched one worker, and wrote Сканування триває to B4. Logs confirmed
+manual_scan_started and resuming_existing_pass=true; publication resumed.
+Readback then showed 209 processed product pages, 667 pending index pages,
+71 stored candidates and zero failed pages. These counters are a snapshot of
+an ongoing traversal, not final totals. Existing /data checkpoints were
+preserved. The request resumed the previously authorized full scan; later
+scans require another user click.
+
+The worker integration fixture now covers three catalog pages linked by ?p=
+pagination and verifies all three are traversed. All 35 tests still pass. No
+native price-filter URL was guessed; qualification uses actual PLN offer
+prices strictly greater than 500. Categories come from product breadcrumbs.
