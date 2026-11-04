@@ -20,7 +20,8 @@ from parser_local_v8 import (get_sheets_client, IMPERSONATE_PROFILE, CONNECT_TIM
 from product_discovery import (BASE, USER_AGENT, catalog_id, product_keys, parse_product,
                                existing_keys, normalize_url, crawl_sitemaps)
 
-FIELDS = ['url', 'name', 'price_pln', 'currency', 'availability', 'ean', 'sku', 'mpn', 'image']
+FIELDS = ['url', 'name', 'price_pln', 'currency', 'availability', 'ean', 'sku', 'mpn', 'image',
+          'category', 'category_path', 'category_url']
 
 
 class Restricted(RuntimeError):
@@ -60,7 +61,7 @@ class Transport:
                     # Reapply host/scheme allowlist and global rate limit at each hop.
                     return self.get(urljoin(url, location), _redirects=_redirects + 1)
                 if resp.content.startswith(b'\x1f\x8b'):
-                    resp._content = gzip.decompress(resp.content)
+                    resp.content = gzip.decompress(resp.content)
                 return resp
             except Restricted:
                 raise
@@ -106,29 +107,44 @@ def retry(operation):
 
 
 def source_keys(book):
-    sheet = retry(lambda: book.worksheet(WORKSHEET_NAME))
-    urls = retry(lambda: sheet.col_values(URL_COLUMN_INDEX))
     keys = set()
-    for url in urls:
-        keys.update(product_keys({'url': url}))
+    for title in (WORKSHEET_NAME, 'old'):
+        sheet = retry(lambda: book.worksheet(title))
+        urls = retry(lambda: sheet.col_values(URL_COLUMN_INDEX))
+        for url in urls:
+            keys.update(product_keys({'url': url}))
     return keys
 
 
 def publish(book, items, title='product_discovery'):
-    if title == WORKSHEET_NAME:
+    if title in (WORKSHEET_NAME, 'old'):
         raise ValueError('Cannot publish into source sheet')
     sheets = retry(book.worksheets)
     sheet = next((s for s in sheets if s.title == title), None)
     if sheet is None:
         # On uncertain create outcome a rerun discovers the created sheet.
-        sheet = book.add_worksheet(title=title, rows=max(1000, len(items) + 1), cols=9)
+        sheet = book.add_worksheet(title=title, rows=max(1000, len(items) + 1), cols=len(FIELDS))
     rows = retry(sheet.get_all_values)
     # gspread returns [[]] for a newly created empty worksheet.
     # Remove only empty trailing rows; preserve every populated existing row.
     while rows and not any(value != '' for value in rows[-1]):
         rows.pop()
-    if rows and rows[0] != FIELDS:
+    if rows and rows[0] not in (FIELDS, FIELDS[:9]):
         raise ValueError('Unexpected destination headers; refusing overwrite')
+    if sheet.col_count < len(FIELDS):
+        retry(lambda: sheet.resize(cols=len(FIELDS)))
+    if rows and rows[0] == FIELDS[:9]:
+        retry(lambda: sheet.update(range_name='J1:L1', values=[FIELDS[9:]], value_input_option='RAW'))
+    # Enrich previously discovered rows without touching their first nine columns.
+    by_id = {catalog_id(item['url']): item for item in items}
+    category_updates = []
+    for row_number, row in enumerate(rows[1:], 2):
+        found = by_id.get(catalog_id(row[0])) if row else None
+        if found and found.get('category') and not any(row[9:12]):
+            category_updates.append({'range': f'J{row_number}:L{row_number}',
+                                     'values': [[found.get(f, '') for f in FIELDS[9:]]]})
+    if category_updates:
+        retry(lambda: sheet.batch_update(category_updates, value_input_option='RAW'))
     known = source_keys(book)
     for row in rows[1:]:
         known.update(product_keys(dict(zip(FIELDS, row))))
@@ -139,7 +155,7 @@ def publish(book, items, title='product_discovery'):
             pending.append([item.get(f, '') for f in FIELDS])
             known.update(keys)
     if not rows:
-        retry(lambda: sheet.update(range_name='A1:I1', values=[FIELDS], value_input_option='RAW'))
+        retry(lambda: sheet.update(range_name='A1:L1', values=[FIELDS], value_input_option='RAW'))
     start = max(2, len(rows) + 1)
     if start + len(pending) - 1 > sheet.row_count:
         retry(lambda: sheet.resize(rows=start + len(pending) - 1))
@@ -147,7 +163,7 @@ def publish(book, items, title='product_discovery'):
         chunk = pending[offset:offset + 50]
         first = start + offset
         # Fixed ranges are idempotent on success followed by a response timeout.
-        retry(lambda: sheet.update(range_name=f'A{first}:I{first + len(chunk) - 1}',
+        retry(lambda: sheet.update(range_name=f'A{first}:L{first + len(chunk) - 1}',
                                    values=chunk, value_input_option='RAW'))
     return len(pending)
 

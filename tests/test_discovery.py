@@ -66,6 +66,7 @@ class Source:
 class Destination:
     title = 'product_discovery'
     row_count = 1000
+    col_count = 12
 
     def __init__(self):
         self.rows = []
@@ -90,7 +91,7 @@ class Book:
         self.destination = destination
 
     def worksheet(self, title):
-        assert title == 'k_1'
+        assert title in ('k_1', 'old')
         return Source()
 
     def worksheets(self):
@@ -110,7 +111,7 @@ def test_publish_retry_and_rerun_do_not_duplicate(empty_rows):
     with patch.object(runner.time, 'sleep'):
         assert runner.publish(book, [item(), new, new]) == 1
         assert len(dest.rows) == 2
-        assert dest.calls.count('A2:I2') == 2
+        assert dest.calls.count('A2:L2') == 2
         assert runner.publish(book, [new]) == 0
     assert dest.rows[1][1] == new['name']
 
@@ -239,4 +240,119 @@ def test_automatic_price_batch_failure_does_not_escape(tmp_path, monkeypatch):
     writer = v8.BatchWriter(Failing(), batch_size=1)
     writer.add(2, {'name': 'Success', 'price': 999})
     assert writer._pending[2][0] == 'Success'
+
+
+def test_category_comes_from_breadcrumbs():
+    breadcrumb = {'@type': 'BreadcrumbList', 'itemListElement': [
+        {'position': 2, 'item': {'@id': '/category/2/laptops.html', 'name': 'Laptopy'}},
+        {'position': 1, 'item': {'@id': '/category/1/computers.html', 'name': 'Komputery'}}]}
+    product = {'@type': 'Product', 'name': 'Device', 'offers': {'price': 501, 'priceCurrency': 'PLN'}}
+    result = pd.parse_product(html(breadcrumb) + html(product), URL)
+    assert result['category'] == 'Laptopy'
+    assert result['category_path'] == 'Komputery > Laptopy'
+    assert result['category_url'] == 'https://www.komputronik.pl/category/2/laptops.html'
+
+
+def test_old_is_excluded_independently():
+    class Tab:
+        def __init__(self, values):
+            self.values = values
+        def col_values(self, column):
+            return self.values
+    class Both:
+        def worksheet(self, title):
+            return Tab([URL] if title == 'old' else [])
+    assert 'catalog:123' in runner.source_keys(Both())
+
+
+def test_durable_queue_recovers_inflight_jobs(tmp_path):
+    from catalog_worker import Queue
+    q = Queue(tmp_path / 'queue.sqlite3')
+    q.add('product', URL)
+    q.add('product', URL)
+    assert q.take('product', 4) == [URL]
+    recovered = Queue(tmp_path / 'queue.sqlite3')
+    assert recovered.take('product') == [URL]
+    recovered.finish('product', URL)
+    assert recovered.take('product') == []
+    assert recovered.stats()['product_done'] == 1
+
+
+def test_catalog_index_follows_real_pagination_and_excludes_facets():
+    from catalog_worker import index_links
+    doc = ('<!doctype html><a href="/category/5022/laptopy.html?p=2">Next</a>'
+           '<a href="/category/5022/laptopy.html?brand=1">Facet</a>'
+           '<a href="' + URL + '">Product</a>')
+    indexes, products = index_links(doc.encode(), pd.BASE + '/sitemap')
+    assert indexes == {pd.BASE + '/category/5022/laptopy.html?p=2'}
+    assert products == {URL}
+
+
+def test_existing_nine_columns_gain_categories_only():
+    class Dest(Destination):
+        col_count = 9
+        def resize(self, **kwargs):
+            self.col_count = kwargs['cols']
+        def batch_update(self, changes, **kwargs):
+            self.changes = changes
+            for change in changes:
+                row = int(change['range'].split(':')[0][1:]) - 1
+                self.rows[row][9:12] = change['values'][0]
+        def update(self, **kwargs):
+            if kwargs['range_name'] == 'J1:L1':
+                self.rows[0][9:12] = kwargs['values'][0]
+                return
+            super().update(**kwargs)
+    dest = Dest()
+    old_values = [item().get(f, '') for f in runner.FIELDS[:9]]
+    dest.rows = [runner.FIELDS[:9], old_values.copy()]
+    enriched = item(category='Laptopy', category_path='PC > Laptopy', category_url=pd.BASE+'/category/2/laptopy.html')
+    assert runner.publish(Book(dest), [enriched]) == 0
+    assert dest.rows[1][:9] == old_values
+    assert dest.rows[1][9] == 'Laptopy'
+    assert dest.rows[0] == runner.FIELDS
+
+
+def test_full_worker_excludes_both_sources_and_resumes(tmp_path, monkeypatch):
+    import catalog_worker as worker
+    monkeypatch.setenv('DISCOVERY_DATA_DIR', str(tmp_path))
+    class Response:
+        def __init__(self, text):
+            self.text, self.content = text, text.encode()
+    requests = []
+    class Transport:
+        def __init__(self, delay):
+            self.delay = delay
+        def get(self, url):
+            requests.append(url)
+            if url.endswith('/robots.txt'):
+                return Response('User-agent: *\nAllow: /')
+            if url.endswith('/sitemap.xml'):
+                return Response('<!doctype html>' + ''.join('<a href="'+URL.replace('/123/', f'/{i}/')+'">Product</a>' for i in (123,124,125,126)))
+            price = '500' if pd.catalog_id(url)=='125' else '501'
+            return Response(html({'@type':'Product','name':'New','offers':{'price':price,'priceCurrency':'PLN'}}))
+    class Tab:
+        def __init__(self, url):
+            self.url = url
+        def col_values(self, column):
+            return [self.url]
+    class Book:
+        def worksheet(self, title):
+            return Tab(URL if title=='k_1' else URL.replace('/123/','/124/'))
+    class Client:
+        def open(self, title):
+            return Book()
+    monkeypatch.delenv('SPREADSHEET_ID', raising=False)
+    monkeypatch.setattr(worker,'get_sheets_client',Client)
+    monkeypatch.setattr(worker,'Transport',Transport)
+    published=[]
+    monkeypatch.setattr(worker,'publish',lambda book,items: published.extend(items) or len(items))
+    worker.run()
+    box=worker.Outbox(tmp_path/'candidates.sqlite3')
+    assert [pd.catalog_id(i['url']) for i in box.items()]==['126']
+    assert not any('/123/' in u or '/124/' in u for u in requests)
+    requests.clear()
+    worker.run()
+    assert requests == [pd.BASE+'/robots.txt']
+    assert worker.Queue(tmp_path/'catalog.sqlite3').stats()['product_done']==2
 

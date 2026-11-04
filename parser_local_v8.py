@@ -269,8 +269,12 @@ def get_sheets_client():
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "gspread-access.json"), scope)
-    return gspread.authorize(creds)
+    raw = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
+    creds = (ServiceAccountCredentials.from_json_keyfile_dict(json.loads(raw), scope) if raw else
+             ServiceAccountCredentials.from_json_keyfile_name(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "gspread-access.json"), scope))
+    client = gspread.authorize(creds)
+    client.http_client.set_timeout((10, 45))
+    return client
 
 
 def _do_request(url: str, use_proxy: bool, hybrid: Optional["HybridSession"]):
@@ -593,3 +597,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

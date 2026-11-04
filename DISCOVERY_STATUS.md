@@ -110,3 +110,33 @@ Automated checks after the fix: **23 tests passed**.
 The key is configured only for this verification environment. A future hosted
 process must receive its credentials separately; no scheduled or full-catalog
 job was deployed. Webshare password rotation remains an owner action.
+
+
+## Full-catalog worker and categories
+
+Prepared catalog_worker.py and Dockerfile.discovery for an isolated Railway
+one-off job. The worker maintains a persistent SQLite index/product queue and
+candidate outbox under /data, recovers interrupted work, follows real category
+pagination (?p=2 etc.), and publishes periodically. There is no product-count
+or index-page sample cap. It stops on HTTP 403/429 rather than retrying an
+access restriction. Failed pages are retained in queue statistics; a completed
+traversal must not be described as all products verified if failures remain.
+
+Both k_1 and old column B are excluded by normalized URL/catalog ID. Category
+metadata comes from the product's BreadcrumbList: J category, K category_path,
+L category_url. The prior nine columns remain in their original positions.
+The publisher upgrades the known nine-column schema and enriches empty
+category cells in existing discovered rows without changing A-I. Unknown
+populated headers still stop publication.
+
+Verification: 29 tests passed, including breadcrumb extraction, old-only
+exclusion, schema migration, real pagination, interrupted queue recovery and
+end-to-end worker restart without rescanning completed product jobs.
+
+Railway project komputronik-discovery and service catalog-scanner have been
+prepared with a dedicated 512 MB progress volume at /data. The code is not yet
+connected/deployed. Automatic approval review rejected uploading the Google
+service-account private key to Railway because that destination had not been
+explicitly authorized for the credential. No credential was transferred.
+Full hosted execution remains blocked pending the user's explicit approval
+for placing the key in that service's protected environment variables.

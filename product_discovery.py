@@ -76,6 +76,25 @@ def json_nodes(data):
 
 def parse_product(html, url):
     soup = BeautifulSoup(html, 'html.parser')
+    breadcrumbs = []
+    for script in soup.find_all('script', type='application/ld+json'):
+        try:
+            data = json.loads(script.string or script.get_text())
+        except (ValueError, TypeError):
+            continue
+        for node in json_nodes(data):
+            types = node.get('@type', [])
+            if 'BreadcrumbList' in (types if isinstance(types, list) else [types]):
+                for element in node.get('itemListElement', []):
+                    item = element.get('item') or {}
+                    if isinstance(item, dict):
+                        link = item.get('@id') or item.get('url') or ''
+                        name = item.get('name') or element.get('name') or ''
+                    else:
+                        link, name = str(item), element.get('name', '')
+                    if name and '/category/' in link:
+                        breadcrumbs.append((element.get('position', 0), str(name), urljoin(url, link)))
+    breadcrumbs.sort(key=lambda row: row[0])
     for script in soup.find_all('script', type='application/ld+json'):
         try:
             data = json.loads(script.string or script.get_text())
@@ -111,6 +130,9 @@ def parse_product(html, url):
                 'ean': node.get('gtin13') or node.get('gtin') or '',
                 'sku': node.get('sku', ''), 'mpn': node.get('mpn', ''),
                 'image': image,
+                'category': breadcrumbs[-1][1] if breadcrumbs else '',
+                'category_path': ' > '.join(row[1] for row in breadcrumbs),
+                'category_url': breadcrumbs[-1][2] if breadcrumbs else '',
             }
     return None
 
@@ -187,3 +209,4 @@ if __name__ == '__main__':
     # Keep parsing helpers independently testable; use the v8-based runner.
     from discovery_runner import main as run
     run()
+
